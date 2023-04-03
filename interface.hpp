@@ -11,6 +11,70 @@
 using namespace std;
 using namespace cv;
 
+static void compute_depth_estimate_pix(int focal_px, int baseline, int disparity, double &depth)
+{
+	if (disparity >= 0)
+	{
+		depth = (double)focal_px * (double)baseline / (double)disparity;
+	}
+}
+
+static void compute_depth_estimate(int focal_length, int image_width, int sensor_width, int baseline, int disparity, double &depth)
+{
+	// fprintf(stderr, "compute_depth_estimate\n");
+	// fprintf(stderr, "focal_length: %f", focal_length);
+	// fprintf(stderr, "image_width: %f", image_width);
+	// fprintf(stderr, "sensor_width: %f", sensor_width);
+	double focal_px = (double)focal_length * (double)image_width / (double)sensor_width;
+	if (disparity >= 0)
+	{
+		depth = (double)focal_px * (double)baseline / (double)disparity;
+	}
+}
+
+static void get_pixel(GdkPixbuf *pixbuf, int x, int y, guchar &red, guchar &green, guchar &blue, guchar &alpha)
+{
+	int width, height, rowstride, n_channels;
+	guchar *pixels, *p;
+
+	rowstride = gdk_pixbuf_get_rowstride(pixbuf);
+	pixels = gdk_pixbuf_get_pixels(pixbuf);
+	n_channels = gdk_pixbuf_get_n_channels(pixbuf);
+
+	p = pixels + y * rowstride + x * n_channels;
+	red = p[0];
+	green = p[1];
+	blue = p[2];
+	alpha = p[3];
+}
+
+static void put_pixel(GdkPixbuf *pixbuf, int x, int y, guchar red, guchar green, guchar blue, guchar alpha)
+{
+	int width, height, rowstride, n_channels;
+	guchar *pixels, *p;
+
+	rowstride = gdk_pixbuf_get_rowstride(pixbuf);
+	pixels = gdk_pixbuf_get_pixels(pixbuf);
+	n_channels = gdk_pixbuf_get_n_channels(pixbuf);
+
+	p = pixels + y * rowstride + x * n_channels;
+	p[0] = red;
+	p[1] = green;
+	p[2] = blue;
+	p[3] = alpha;
+}
+
+static string convertToString(const char *a, int size)
+{
+	int i;
+	string s = "";
+	for (i = 0; i < size; i++)
+	{
+		s = s + a[i];
+	}
+	return s;
+}
+
 /* Matcher type */
 typedef enum
 {
@@ -27,6 +91,7 @@ struct ChData
 	GtkImage *image_right;
 	GtkImage *image_depth;
 	GtkWidget *rb_bm, *rb_sgbm;
+	GtkWidget *pix_rabiobutton, *mm_rabiobutton;
 	GtkWidget *sc_block_size, *sc_min_disparity, *sc_num_disparities,
 		*sc_disp_max_diff, *sc_speckle_range, *sc_speckle_window_size,
 		*sc_p1, *sc_p2, *sc_pre_filter_cap, *sc_pre_filter_size,
@@ -38,8 +103,22 @@ struct ChData
 		*adj_uniqueness_ratio, *adj_texture_threshold;
 	GtkWidget *status_bar;
 	GtkWidget *pixel_bar;
+	GtkWidget *img_width_bar;
+	GtkWidget *image_disparity_container;
+	GtkEntry *baseline_value;
+	GtkEntry *sensor_width_value;
+	GtkEntry *focallength_value;
 	gint status_bar_context;
 	gint pixel_bar_context;
+	gint img_width_bar_context;
+	int baseline = 0;
+	int coord_x = 0;
+	int coord_y = 0;
+	int intensity_value = 0;
+	int sensor_width = 0;
+	int image_width = 0;
+	int focal_length = 0;
+	bool use_fl_pix = true;
 
 	/* OpenCV */
 	Ptr<StereoMatcher> stereo_matcher;
@@ -218,6 +297,11 @@ void update_matcher(ChData *data)
 		data->cv_color_image.rows, data->cv_color_image.step,
 		NULL, NULL);
 	gtk_image_set_from_pixbuf(data->image_depth, pixbuf);
+	data->image_width = data->cv_color_image.cols;
+	gchar *img_pixel = g_strdup_printf("%d", data->image_width);
+	gtk_statusbar_pop(GTK_STATUSBAR(data->img_width_bar), data->img_width_bar_context);
+	gtk_statusbar_push(GTK_STATUSBAR(data->img_width_bar), data->img_width_bar_context, img_pixel);
+	g_free(img_pixel);
 }
 
 void update_interface(ChData *data)
@@ -510,27 +594,79 @@ extern "C"
 		}
 	}
 
-	G_MODULE_EXPORT gboolean disparity_on_click(GtkWidget *widget, GdkEvent *event)
+	G_MODULE_EXPORT void disparity_on_click(GtkWidget *widget, GdkEventButton *event, ChData *data)
 	{
-		switch (event->type)
+		// Update baseline map
+		update_matcher(data);
+		// Get baseline from GUI
+		const char *bsl_text = gtk_entry_get_text(GTK_ENTRY(data->baseline_value));
+		string bsl_text_str = convertToString(bsl_text, strlen(bsl_text));
+		data->baseline = stoi(bsl_text_str);
+
+		// Get sensor width from GUI
+		const char *swd_text = gtk_entry_get_text(GTK_ENTRY(data->sensor_width_value));
+		string swd_text_str = convertToString(swd_text, strlen(swd_text));
+		data->sensor_width = stoi(swd_text_str);
+		// Get focal length
+		const char *fcl_text = gtk_entry_get_text(GTK_ENTRY(data->focallength_value));
+		string fcl_text_str = convertToString(fcl_text, strlen(fcl_text));
+		data->focal_length = stoi(fcl_text_str);
+		// Get pixel buffer
+		GdkPixbuf *pix_buffer = gtk_image_get_pixbuf(GTK_IMAGE(data->image_depth));
+		// Get clicked point coords
+		data->coord_x = event->x;
+		data->coord_y = event->y;
+		// Get image intensity at point (?)
+		guchar r, g, b, a;
+		get_pixel(pix_buffer, data->coord_x, data->coord_y, r, g, b, a);
+		// fprintf(stderr, "Got values: \t r: %d g: %d b: %d a: %d\n", r, g, b, a);
+		data->intensity_value = a;
+
+		// Compute depth value at pixel
+		double depth = -1.0;
+		if (data->use_fl_pix)
 		{
-		case GDK_BUTTON_PRESS:
-			// gchar *status_message = g_strdup_printf("CIAOOOO");
-			// gtk_statusbar_pop(GTK_STATUSBAR(data->pixel_bar), data->pixel_bar_context);
-			// gtk_statusbar_push(GTK_STATUSBAR(data->pixel_bar), data->pixel_bar_context, status_message);
-			// g_free(status_message);
-			fprintf(stderr, "The Button was Pressed\n");
-			return TRUE;
-
-		case GDK_BUTTON_RELEASE:
-			fprintf(stderr, "\tThe Button was Released\n");
-			return TRUE;
-
-		default:
-			return FALSE;
+			compute_depth_estimate_pix(data->focal_length, data->baseline, data->intensity_value, depth);
+		}
+		else
+		{
+			compute_depth_estimate(data->focal_length, data->image_width, data->sensor_width, data->baseline, data->intensity_value, depth);
 		}
 
-		return FALSE;
+		gchar *coords_message = g_strdup_printf("%f @ (x: %d, y: %d), baseline: %d mm", depth, data->coord_x, data->coord_y, data->baseline);
+		gtk_statusbar_pop(GTK_STATUSBAR(data->pixel_bar), data->pixel_bar_context);
+		gtk_statusbar_push(GTK_STATUSBAR(data->pixel_bar), data->pixel_bar_context, coords_message);
+		g_free(coords_message);
+	}
+
+	G_MODULE_EXPORT void on_baseline_value_insert_text(GtkEditable *editable, const gchar *text, gint length, gint *position, ChData *data)
+	{
+		int i;
+
+		for (i = 0; i < length; i++)
+		{
+			if (!isdigit(text[i]))
+			{
+				g_signal_stop_emission_by_name(G_OBJECT(editable), "insert-text");
+				return;
+			}
+		}
+	}
+
+	G_MODULE_EXPORT void on_pix_rabiobutton_clicked(GtkButton *b, ChData *data)
+	{
+		if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(b)))
+		{
+			data->use_fl_pix = true;
+		}
+	}
+
+	G_MODULE_EXPORT void on_mm_radiobutton_clicked(GtkButton *b, ChData *data)
+	{
+		if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(b)))
+		{
+			data->use_fl_pix = false;
+		}
 	}
 
 	G_MODULE_EXPORT void on_rb_pre_filter_normalized_clicked(GtkButton *b, ChData *data)

@@ -167,6 +167,9 @@ int main(int argc, char *argv[])
 	data->rb_pre_filter_xsobel = GTK_WIDGET(gtk_builder_get_object(builder, "rb_pre_filter_xsobel"));
 	data->chk_full_dp = GTK_WIDGET(gtk_builder_get_object(builder, "chk_full_dp"));
 	data->status_bar = GTK_WIDGET(gtk_builder_get_object(builder, "status_bar"));
+	data->pixel_bar = GTK_WIDGET(gtk_builder_get_object(builder, "pixel_bar"));
+	data->img_width_bar = GTK_WIDGET(gtk_builder_get_object(builder, "img_width_bar"));
+	data->image_disparity_container = GTK_WIDGET(gtk_builder_get_object(builder, "image_disparity_container"));
 	data->rb_bm = GTK_WIDGET(gtk_builder_get_object(builder, "algo_sbm"));
 	data->rb_sgbm = GTK_WIDGET(gtk_builder_get_object(builder, "algo_ssgbm"));
 	data->adj_block_size = GTK_ADJUSTMENT(gtk_builder_get_object(builder, "adj_block_size"));
@@ -181,8 +184,14 @@ int main(int argc, char *argv[])
 	data->adj_pre_filter_size = GTK_ADJUSTMENT(gtk_builder_get_object(builder, "adj_pre_filter_size"));
 	data->adj_uniqueness_ratio = GTK_ADJUSTMENT(gtk_builder_get_object(builder, "adj_uniqueness_ratio"));
 	data->adj_texture_threshold = GTK_ADJUSTMENT(gtk_builder_get_object(builder, "adj_texture_threshold"));
+	data->baseline_value = GTK_ENTRY(gtk_builder_get_object(builder, "baseline_value"));
+	data->sensor_width_value = GTK_ENTRY(gtk_builder_get_object(builder, "sensor_width_value"));
+	data->focallength_value = GTK_ENTRY(gtk_builder_get_object(builder, "focallength_value"));
 	data->status_bar_context = gtk_statusbar_get_context_id(GTK_STATUSBAR(data->status_bar), "Statusbar context");
-
+	data->pixel_bar_context = gtk_statusbar_get_context_id(GTK_STATUSBAR(data->pixel_bar), "Pixelbar context");
+	data->img_width_bar_context = gtk_statusbar_get_context_id(GTK_STATUSBAR(data->img_width_bar), "img_width_bar context");
+	data->pix_rabiobutton = GTK_WIDGET(gtk_builder_get_object(builder, "pix_rabiobutton"));
+	data->mm_rabiobutton = GTK_WIDGET(gtk_builder_get_object(builder, "mm_rabiobutton"));
 	// Put images in place:
 	// gtk_image_set_from_file(data->image_left, left_filename);
 	// gtk_image_set_from_file(data->image_right, right_filename);
