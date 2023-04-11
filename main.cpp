@@ -65,6 +65,13 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
+	int down_width = 640;
+	int down_height = 480;
+	Mat resized_down;
+	// resize down
+	resize(left_image, left_image, Size(down_width, down_height), INTER_LINEAR);
+	resize(right_image, right_image, Size(down_width, down_height), INTER_LINEAR);
+
 	Mat gray_left, gray_right;
 	cvtColor(left_image, gray_left, COLOR_BGR2GRAY);
 	cvtColor(right_image, gray_right, COLOR_BGR2GRAY);
