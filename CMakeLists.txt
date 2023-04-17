@@ -5,10 +5,14 @@ project(stereo-tuner)
 # add_compile_options(-std=c++11)
 
 find_package(OpenCV 4.5.0 REQUIRED)
-find_package(OpenCV 4.5.0 REQUIRED)
-find_package(OpenCV 4.5.0 REQUIRED)
 find_package ( PkgConfig REQUIRED )
 PKG_CHECK_MODULES( GTK REQUIRED gtk+-3.0 )
+
+set(WITH_CUDA ON)
+# Indication to the code that this is a debug build
+if (WITH_CUDA)
+    add_compile_definitions(WITH_CUDA)
+endif ()
 
 ###########
 ## Build ##

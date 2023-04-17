@@ -7,6 +7,11 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <iostream>
+
+#ifdef WITH_CUDA
+#include <opencv2/cudastereo.hpp>
+#endif
 
 using namespace std;
 using namespace cv;
@@ -174,134 +179,190 @@ struct ChData
 
 void update_matcher(ChData *data)
 {
-	if (!data->live_update)
+
+	try
 	{
-		return;
+		/* code */
+
+		if (!data->live_update)
+		{
+			return;
+		}
+
+#ifdef WITH_CUDA
+		Ptr<cuda::StereoBM> stereo_bm;
+		Ptr<cuda::StereoSGM> stereo_sgbm;
+#else
+		Ptr<StereoBM> stereo_bm;
+		Ptr<StereoSGBM> stereo_sgbm;
+#endif
+
+		switch (data->matcher_type)
+		{
+		case BM:
+#ifdef WITH_CUDA
+			stereo_bm = data->stereo_matcher.dynamicCast<cuda::StereoBM>();
+#else
+			stereo_bm = data->stereo_matcher.dynamicCast<StereoBM>();
+#endif
+
+			// If we have the wrong type of matcher, let's create a new one:
+			if (!stereo_bm)
+			{
+#ifdef WITH_CUDA
+				data->stereo_matcher = stereo_bm = cuda::createStereoBM(16, 1);
+#else
+				data->stereo_matcher = stereo_bm = StereoBM::create(16, 1);
+#endif
+				gtk_widget_set_sensitive(data->sc_block_size, true);
+				gtk_widget_set_sensitive(data->sc_min_disparity, true);
+				gtk_widget_set_sensitive(data->sc_num_disparities, true);
+				gtk_widget_set_sensitive(data->sc_disp_max_diff, true);
+				gtk_widget_set_sensitive(data->sc_speckle_range, true);
+				gtk_widget_set_sensitive(data->sc_speckle_window_size, true);
+				gtk_widget_set_sensitive(data->sc_p1, false);
+				gtk_widget_set_sensitive(data->sc_p2, false);
+				gtk_widget_set_sensitive(data->sc_pre_filter_cap, true);
+				gtk_widget_set_sensitive(data->sc_pre_filter_size, true);
+				gtk_widget_set_sensitive(data->sc_uniqueness_ratio, true);
+				gtk_widget_set_sensitive(data->sc_texture_threshold, true);
+				gtk_widget_set_sensitive(data->rb_pre_filter_normalized, true);
+				gtk_widget_set_sensitive(data->rb_pre_filter_xsobel, true);
+				gtk_widget_set_sensitive(data->chk_full_dp, false);
+			}
+
+			stereo_bm->setBlockSize(data->block_size);
+			stereo_bm->setDisp12MaxDiff(data->disp_12_max_diff);
+			stereo_bm->setMinDisparity(data->min_disparity);
+			stereo_bm->setNumDisparities(data->num_disparities);
+			stereo_bm->setSpeckleRange(data->speckle_range);
+			stereo_bm->setSpeckleWindowSize(data->speckle_window_size);
+			stereo_bm->setPreFilterCap(data->pre_filter_cap);
+			stereo_bm->setPreFilterSize(data->pre_filter_size);
+			stereo_bm->setPreFilterType(data->pre_filter_type);
+			stereo_bm->setTextureThreshold(data->texture_threshold);
+			stereo_bm->setUniquenessRatio(data->uniqueness_ratio);
+
+			if (data->roi1 != NULL && data->roi2 != NULL)
+			{
+				stereo_bm->setROI1(*data->roi1);
+				stereo_bm->setROI2(*data->roi2);
+			}
+			break;
+
+		case SGBM:
+#ifdef WITH_CUDA
+			stereo_sgbm = data->stereo_matcher.dynamicCast<cuda::StereoSGM>();
+#else
+			stereo_sgbm = data->stereo_matcher.dynamicCast<StereoSGBM>();
+#endif
+
+			// If we have the wrong type of matcher, let's create a new one:
+			if (!stereo_sgbm)
+			{
+#ifdef WITH_CUDA
+				data->stereo_matcher = stereo_sgbm = cuda::createStereoSGM(
+					ChData::DEFAULT_MIN_DISPARITY,
+					ChData::DEFAULT_NUM_DISPARITIES, ChData::DEFAULT_BLOCK_SIZE);
+#else
+				data->stereo_matcher = stereo_sgbm = StereoSGBM::create(
+					ChData::DEFAULT_MIN_DISPARITY,
+					ChData::DEFAULT_NUM_DISPARITIES, ChData::DEFAULT_BLOCK_SIZE,
+					ChData::DEFAULT_P1, ChData::DEFAULT_P2,
+					ChData::DEFAULT_DISP_12_MAX_DIFF,
+					ChData::DEFAULT_PRE_FILTER_CAP,
+					ChData::DEFAULT_UNIQUENESS_RATIO,
+					ChData::DEFAULT_SPECKLE_WINDOW_SIZE,
+					ChData::DEFAULT_SPECKLE_RANGE, ChData::DEFAULT_MODE);
+#endif
+
+				gtk_widget_set_sensitive(data->sc_block_size, true);
+				gtk_widget_set_sensitive(data->sc_min_disparity, true);
+				gtk_widget_set_sensitive(data->sc_num_disparities, true);
+				gtk_widget_set_sensitive(data->sc_disp_max_diff, true);
+				gtk_widget_set_sensitive(data->sc_speckle_range, true);
+				gtk_widget_set_sensitive(data->sc_speckle_window_size, true);
+				gtk_widget_set_sensitive(data->sc_p1, true);
+				gtk_widget_set_sensitive(data->sc_p2, true);
+				gtk_widget_set_sensitive(data->sc_pre_filter_cap, true);
+				gtk_widget_set_sensitive(data->sc_pre_filter_size, false);
+				gtk_widget_set_sensitive(data->sc_uniqueness_ratio, true);
+				gtk_widget_set_sensitive(data->sc_texture_threshold, false);
+				gtk_widget_set_sensitive(data->rb_pre_filter_normalized, false);
+				gtk_widget_set_sensitive(data->rb_pre_filter_xsobel, false);
+				gtk_widget_set_sensitive(data->chk_full_dp, true);
+			}
+
+			stereo_sgbm->setBlockSize(data->block_size);
+			stereo_sgbm->setDisp12MaxDiff(data->disp_12_max_diff);
+			stereo_sgbm->setMinDisparity(data->min_disparity);
+#ifdef WITH_CUDA
+			stereo_sgbm->setMode(cv::cuda::StereoSGM::MODE_HH);
+			if (data->num_disparities % 64 == 0)
+				stereo_sgbm->setNumDisparities(data->num_disparities);
+#else
+			stereo_sgbm->setMode(data->mode);
+			stereo_sgbm->setNumDisparities(data->num_disparities);
+#endif
+			stereo_sgbm->setP1(data->p1);
+			stereo_sgbm->setP2(data->p2);
+			stereo_sgbm->setPreFilterCap(data->pre_filter_cap);
+			stereo_sgbm->setSpeckleRange(data->speckle_range);
+			stereo_sgbm->setSpeckleWindowSize(data->speckle_window_size);
+			stereo_sgbm->setUniquenessRatio(data->uniqueness_ratio);
+
+			break;
+		}
+
+		clock_t t;
+		t = clock();
+
+#ifdef WITH_CUDA
+		cuda::GpuMat cuda_left, cuda_right, cuda_disp, cuda_disp_filtered;
+		int nDisp = 64;
+		int radius = 3;
+		int iters = 1;
+		Ptr<cuda::DisparityBilateralFilter> pCudaBilFilter = cuda::createDisparityBilateralFilter(nDisp, radius, iters);
+		cuda_left.upload(data->cv_image_left);
+		cuda_right.upload(data->cv_image_right);
+		data->stereo_matcher->compute(cuda_left, cuda_right,
+									  cuda_disp);
+		pCudaBilFilter->apply(cuda_disp, cuda_left, cuda_disp_filtered);
+		cuda_disp_filtered.download(data->cv_image_disparity);
+#else
+		data->stereo_matcher->compute(data->cv_image_left, data->cv_image_right,
+									  data->cv_image_disparity);
+#endif
+		t = clock() - t;
+#ifdef WITH_CUDA
+		gchar *status_message = g_strdup_printf("Disparity computation took %lf milliseconds with CUDA", ((double)t * 1000) / CLOCKS_PER_SEC);
+#else
+		gchar *status_message = g_strdup_printf("Disparity computation took %lf milliseconds", ((double)t * 1000) / CLOCKS_PER_SEC);
+#endif
+		gtk_statusbar_pop(GTK_STATUSBAR(data->status_bar), data->status_bar_context);
+		gtk_statusbar_push(GTK_STATUSBAR(data->status_bar), data->status_bar_context, status_message);
+		g_free(status_message);
+
+		normalize(data->cv_image_disparity, data->cv_image_disparity_normalized, 0,
+				  255, NORM_MINMAX, CV_8UC1);
+		cvtColor(data->cv_image_disparity_normalized, data->cv_color_image,
+				 COLOR_GRAY2RGB);
+		GdkPixbuf *pixbuf = gdk_pixbuf_new_from_data(
+			(guchar *)data->cv_color_image.data, GDK_COLORSPACE_RGB, false,
+			8, data->cv_color_image.cols,
+			data->cv_color_image.rows, data->cv_color_image.step,
+			NULL, NULL);
+		gtk_image_set_from_pixbuf(data->image_depth, pixbuf);
+		data->image_width = data->cv_color_image.cols;
+		gchar *img_pixel = g_strdup_printf("%d", data->image_width);
+		gtk_statusbar_pop(GTK_STATUSBAR(data->img_width_bar), data->img_width_bar_context);
+		gtk_statusbar_push(GTK_STATUSBAR(data->img_width_bar), data->img_width_bar_context, img_pixel);
+		g_free(img_pixel);
 	}
-
-	Ptr<StereoBM> stereo_bm;
-	Ptr<StereoSGBM> stereo_sgbm;
-
-	switch (data->matcher_type)
+	catch (const std::exception &e)
 	{
-	case BM:
-		stereo_bm = data->stereo_matcher.dynamicCast<StereoBM>();
-
-		// If we have the wrong type of matcher, let's create a new one:
-		if (!stereo_bm)
-		{
-			data->stereo_matcher = stereo_bm = StereoBM::create(16, 1);
-
-			gtk_widget_set_sensitive(data->sc_block_size, true);
-			gtk_widget_set_sensitive(data->sc_min_disparity, true);
-			gtk_widget_set_sensitive(data->sc_num_disparities, true);
-			gtk_widget_set_sensitive(data->sc_disp_max_diff, true);
-			gtk_widget_set_sensitive(data->sc_speckle_range, true);
-			gtk_widget_set_sensitive(data->sc_speckle_window_size, true);
-			gtk_widget_set_sensitive(data->sc_p1, false);
-			gtk_widget_set_sensitive(data->sc_p2, false);
-			gtk_widget_set_sensitive(data->sc_pre_filter_cap, true);
-			gtk_widget_set_sensitive(data->sc_pre_filter_size, true);
-			gtk_widget_set_sensitive(data->sc_uniqueness_ratio, true);
-			gtk_widget_set_sensitive(data->sc_texture_threshold, true);
-			gtk_widget_set_sensitive(data->rb_pre_filter_normalized, true);
-			gtk_widget_set_sensitive(data->rb_pre_filter_xsobel, true);
-			gtk_widget_set_sensitive(data->chk_full_dp, false);
-		}
-
-		stereo_bm->setBlockSize(data->block_size);
-		stereo_bm->setDisp12MaxDiff(data->disp_12_max_diff);
-		stereo_bm->setMinDisparity(data->min_disparity);
-		stereo_bm->setNumDisparities(data->num_disparities);
-		stereo_bm->setSpeckleRange(data->speckle_range);
-		stereo_bm->setSpeckleWindowSize(data->speckle_window_size);
-		stereo_bm->setPreFilterCap(data->pre_filter_cap);
-		stereo_bm->setPreFilterSize(data->pre_filter_size);
-		stereo_bm->setPreFilterType(data->pre_filter_type);
-		stereo_bm->setTextureThreshold(data->texture_threshold);
-		stereo_bm->setUniquenessRatio(data->uniqueness_ratio);
-
-		if (data->roi1 != NULL && data->roi2 != NULL)
-		{
-			stereo_bm->setROI1(*data->roi1);
-			stereo_bm->setROI2(*data->roi2);
-		}
-		break;
-
-	case SGBM:
-		stereo_sgbm = data->stereo_matcher.dynamicCast<StereoSGBM>();
-
-		// If we have the wrong type of matcher, let's create a new one:
-		if (!stereo_sgbm)
-		{
-			data->stereo_matcher = stereo_sgbm = StereoSGBM::create(
-				ChData::DEFAULT_MIN_DISPARITY,
-				ChData::DEFAULT_NUM_DISPARITIES, ChData::DEFAULT_BLOCK_SIZE,
-				ChData::DEFAULT_P1, ChData::DEFAULT_P2,
-				ChData::DEFAULT_DISP_12_MAX_DIFF,
-				ChData::DEFAULT_PRE_FILTER_CAP,
-				ChData::DEFAULT_UNIQUENESS_RATIO,
-				ChData::DEFAULT_SPECKLE_WINDOW_SIZE,
-				ChData::DEFAULT_SPECKLE_RANGE, ChData::DEFAULT_MODE);
-
-			gtk_widget_set_sensitive(data->sc_block_size, true);
-			gtk_widget_set_sensitive(data->sc_min_disparity, true);
-			gtk_widget_set_sensitive(data->sc_num_disparities, true);
-			gtk_widget_set_sensitive(data->sc_disp_max_diff, true);
-			gtk_widget_set_sensitive(data->sc_speckle_range, true);
-			gtk_widget_set_sensitive(data->sc_speckle_window_size, true);
-			gtk_widget_set_sensitive(data->sc_p1, true);
-			gtk_widget_set_sensitive(data->sc_p2, true);
-			gtk_widget_set_sensitive(data->sc_pre_filter_cap, true);
-			gtk_widget_set_sensitive(data->sc_pre_filter_size, false);
-			gtk_widget_set_sensitive(data->sc_uniqueness_ratio, true);
-			gtk_widget_set_sensitive(data->sc_texture_threshold, false);
-			gtk_widget_set_sensitive(data->rb_pre_filter_normalized, false);
-			gtk_widget_set_sensitive(data->rb_pre_filter_xsobel, false);
-			gtk_widget_set_sensitive(data->chk_full_dp, true);
-		}
-
-		stereo_sgbm->setBlockSize(data->block_size);
-		stereo_sgbm->setDisp12MaxDiff(data->disp_12_max_diff);
-		stereo_sgbm->setMinDisparity(data->min_disparity);
-		stereo_sgbm->setMode(data->mode);
-		stereo_sgbm->setNumDisparities(data->num_disparities);
-		stereo_sgbm->setP1(data->p1);
-		stereo_sgbm->setP2(data->p2);
-		stereo_sgbm->setPreFilterCap(data->pre_filter_cap);
-		stereo_sgbm->setSpeckleRange(data->speckle_range);
-		stereo_sgbm->setSpeckleWindowSize(data->speckle_window_size);
-		stereo_sgbm->setUniquenessRatio(data->uniqueness_ratio);
-
-		break;
+		std::cerr << e.what() << '\n';
 	}
-
-	clock_t t;
-	t = clock();
-	data->stereo_matcher->compute(data->cv_image_left, data->cv_image_right,
-								  data->cv_image_disparity);
-	t = clock() - t;
-
-	gchar *status_message = g_strdup_printf("Disparity computation took %lf milliseconds", ((double)t * 1000) / CLOCKS_PER_SEC);
-	gtk_statusbar_pop(GTK_STATUSBAR(data->status_bar), data->status_bar_context);
-	gtk_statusbar_push(GTK_STATUSBAR(data->status_bar), data->status_bar_context, status_message);
-	g_free(status_message);
-
-	normalize(data->cv_image_disparity, data->cv_image_disparity_normalized, 0,
-			  255, NORM_MINMAX, CV_8UC1);
-	cvtColor(data->cv_image_disparity_normalized, data->cv_color_image,
-			 COLOR_GRAY2RGB);
-	GdkPixbuf *pixbuf = gdk_pixbuf_new_from_data(
-		(guchar *)data->cv_color_image.data, GDK_COLORSPACE_RGB, false,
-		8, data->cv_color_image.cols,
-		data->cv_color_image.rows, data->cv_color_image.step,
-		NULL, NULL);
-	gtk_image_set_from_pixbuf(data->image_depth, pixbuf);
-	data->image_width = data->cv_color_image.cols;
-	gchar *img_pixel = g_strdup_printf("%d", data->image_width);
-	gtk_statusbar_pop(GTK_STATUSBAR(data->img_width_bar), data->img_width_bar_context);
-	gtk_statusbar_push(GTK_STATUSBAR(data->img_width_bar), data->img_width_bar_context, img_pixel);
-	g_free(img_pixel);
 }
 
 void update_interface(ChData *data)
